@@ -62,6 +62,8 @@ interface IModeHandlerMap {
   get(editorId: Uri): ModeHandler | undefined;
 }
 
+let savedCursorColor: string | undefined;
+
 /**
  * ModeHandler is the extension's backbone. It listens to events and updates the VimState.
  * One of these exists for each editor - see ModeHandlerMap
@@ -1403,6 +1405,50 @@ export class ModeHandler implements vscode.Disposable, IModeHandler {
     }
 
     // cursor style
+    const config = vscode.workspace.getConfiguration('workbench');
+    const currentColorRecord = config.inspect<Record<string, string>>('colorCustomizations');
+    const currentColor = currentColorRecord?.globalValue?.['editorCursor.foreground'];
+    const HIDDEN_COLOR = '#00000000';
+    const isCursorHidden = currentColor === HIDDEN_COLOR;
+    const shouldCursorBeHidden =
+      this.currentMode === Mode.CommandlineInProgress ||
+      this.currentMode === Mode.SearchInProgressMode;
+
+    if (shouldCursorBeHidden && !isCursorHidden) {
+      // Set hidden
+      savedCursorColor = currentColor;
+      config.update(
+        'colorCustomizations',
+        {
+          ...currentColorRecord?.globalValue,
+          'editorCursor.foreground': HIDDEN_COLOR,
+        },
+        vscode.ConfigurationTarget.Global,
+      );
+    } else if (!shouldCursorBeHidden && isCursorHidden) {
+      if (savedCursorColor !== undefined) {
+        // Set to user color
+        config.update(
+          'colorCustomizations',
+          {
+            ...currentColorRecord?.globalValue,
+            'editorCursor.foreground': savedCursorColor,
+          },
+          vscode.ConfigurationTarget.Global,
+        );
+      } else {
+        // Set to default color
+        const updated = { ...currentColorRecord?.globalValue };
+        delete updated['editorCursor.foreground'];
+
+        config.update(
+          'colorCustomizations',
+          Object.keys(updated).length > 0 ? updated : undefined,
+          vscode.ConfigurationTarget.Global,
+        );
+      }
+    }
+
     let cursorStyle = configuration.getCursorStyleForMode(this.currentMode);
     if (!cursorStyle) {
       const cursorType = getCursorType(
